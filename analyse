@@ -1,0 +1,167 @@
+# coding: utf-8
+import re
+import jieba
+import networkx as nx
+import jieba.posseg as pseg
+from pylab import *
+import numpy as np
+import collections
+
+def get_abstract(text_,stopwords,num,lang,idf_map):
+    text=text_.replace('\n','').replace('\u3000','').replace('？”','”').replace('！”','”').replace('。”','”')
+    sentences = re.split(r"([。！？…….?!])", text)
+    sentences.append('')
+    sentences = ["".join(i) for i in zip(sentences[0::2], sentences[1::2])]
+    #分词
+    sentences2=[]
+    for sentence in sentences:
+        if lang == 'zh':
+            words =list(jieba.cut(sentence))
+            sentences2.append(words)
+        elif lang == 'en':
+            words = list(sentence.split())
+            sentences2.append(words)
+    #去停用词和单字
+    sentences3=[]
+    for sentence in sentences2:
+        sentence2=[]
+        for word in sentence:
+            if word in stopwords:
+                pass
+            elif len(word)<=1:
+                pass
+            else:
+                sentence2.append(word)
+        if len(sentence2)>1:
+            sentences3.append(sentence2)
+        else:
+            sentences3.append([])
+    #单字词频统计
+    def flatten(x):
+        result = []
+        for el in x:
+            if isinstance(x, collections.Iterable) and not isinstance(el, str):
+                result.extend(flatten(el))
+            else:
+                result.append(el)
+        return result
+    word_map={}
+    word_list=flatten(sentences3)
+    for word in list(set(word_list)):
+        word_map[word]=word_list.count(word)
+    #词对频数统计
+    word2word_map={}
+    word2word=[]
+    for sentence in sentences3:
+        for i in range(len(sentence)):
+            for j in range(i+1,len(sentence)):
+                alist=[]
+                alist.append(sentence[i])
+                alist.append(sentence[j])
+                alist=sorted(alist)
+                word2word.append('_'.join(alist))
+    for w2w in list(set(word2word)):
+        word2word_map[w2w]=word2word.count(w2w)
+    #计算共现网络权重
+    word2word_weight={}
+    for w2w in list(set(word2word)):
+        word2word_weight[w2w]=(word2word_map[w2w]/word_map[w2w.split('_')[0]]+word2word_map[w2w]/word_map[w2w.split('_')[1]])*0.5
+    #共现网络可视化
+    G=nx.Graph()
+    word_list2=[]
+    for word in list(set(word_list)):
+        word=unicode(word.encode("utf-8"),'utf-8')
+        word_list2.append(word)
+    G.add_nodes_from(word_list2)
+    for w2w in word2word_weight.keys():
+        G.add_edge(unicode(w2w.split('_')[0].encode("utf-8"),'utf-8'),unicode(w2w.split('_')[1].encode("utf-8"),'utf-8'),weight=word2word_weight[w2w])
+    word_map2=[]
+    for word in nx.degree_centrality(G).keys():
+        word_map2.append((word,word_map[word]))
+    fre=[]
+    idf_num=[]
+    max_idf_num=max(idf_map.values())
+    for flu in word_map2:
+        fre.append(flu[1])
+        try:
+            idf_num.append(idf_map[flu[0]])
+        except:
+            idf_num.append(max_idf_num)
+    fre=np.array(fre)
+    idf_num=np.array(idf_num)
+    try:
+        pr1=np.array(list(nx.degree_centrality(G).values()))
+    except:
+        pr1=np.zeros(len(word_list2))
+    try:
+        pr2=np.array(list(nx.eigenvector_centrality(G).values()))
+    except:
+        pr2=np.zeros(len(word_list2))
+    try:
+        pr3=np.array(list(nx.betweenness_centrality(G).values()))
+    except:
+        pr3=np.zeros(len(word_list2))
+    pr4=fre
+    weight_=list((0.1*pr1/max(0.001,sum(pr1))+0.1*pr2/max(0.001,sum(pr2))+0.5*pr3/max(0.001,sum(pr3))+0.3*pr4*idf_num/max(0.001,sum(pr4))))
+    keywords=dict(zip(word_list2,weight_))
+    sentences_score={}
+    i=0
+    for sentence in sentences3:
+        sentence_score=0
+        if len(sentence)>0:
+            for word in sentence:
+                sentence_score+=keywords[word]
+            sentences_score[i]=sentence_score/len(sentence)
+        i+=1
+    sentences_score = sorted(sentences_score.items(),reverse=True, key = lambda k: k[1])
+    results=[]
+    for sentence_num in sorted(sentences_score[:num]):
+        sentence=''
+        seq=re.split('([，；])', sentences[sentence_num[0]])
+        seq.append('')
+        seq = ["".join(i) for i in zip(seq[0::2], seq[1::2])]
+        for sen in seq:
+            words = list(jieba.cut(sen))
+            words2=[]
+            for word in words:
+                if word in stopwords:
+                    pass
+                elif len(word) <= 1:
+                    pass
+                else:
+                    words2.append(word)
+            if len(sen)<=4:
+                __if_useful=False
+                word_flags=pseg.lcut(sen)
+                for word_flag in word_flags:
+                    if word_flag.flag in ['n','nd','nh','ni','nl','ns','nt','nz','vn','nr','nrf','nsf','ng','nrj','nr1','nr2']:
+                        __if_useful=True
+                        break
+                if __if_useful:
+                    if sentence != '':
+                        sentence = sentence + sen
+            elif len(words2)==0:
+                pass
+            else:
+                if sentence!='':
+                    sentence = sentence + sen
+                else:
+                    sentence=sentence+sen
+        results.append(sentence)
+    return ''.join(results)
+
+# text="""
+# "【中国智能制造网 企业动态微软】联合通用电气宣布将拓展两家公司之间的合作，将运营技术和信息技术结合起来以消除工业企业在推进数字化转型项目方面面临的障碍。
+# 据报道，微软联合通用电气宣布将拓展两家公司之间的合作，将运营技术和信息技术结合起来以消除工业企业在推进数字化转型项目方面面临的障碍。具体的合作是，通用电气旗下的软件业务部门“GF Digtal”计划在微软Azure云平台上标准化其Predix解决方案，并将Predix产品组合与Azure本地云功能包括物联网和数据分析进行深度融合。
+# """
+# import pandas as pd
+# stopwords=pd.read_csv("stopwords.txt",index_col=False,quoting=3,sep="\t",names=['stopword'], encoding='utf-8')
+# stopwords=stopwords['stopword'].values
+# f=open('idf.txt',encoding='utf-8')
+# lines=f.readlines()
+# f.close()
+# idf_map={}
+# for line in lines:
+#     line=line.replace('\n','').split()
+#     idf_map[line[0]]=float(line[1])
+# print(get_abstract(text,stopwords,3,'zh',idf_map))
