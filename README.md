@@ -13,8 +13,8 @@ lines=f.readlines()
 f.close()  
 idf_map={}  
 for line in lines:  
-    line=line.replace('\n','').split()  
-    idf_map[line[0]]=float(line[1])  
+     line=line.replace('\n','').split()  
+     idf_map[line[0]]=float(line[1])  
 analyser=analyse(text,10,2,stopwords,'zh',idf_map)  
 print(analyser.getAbstract())  
 print(analyser.getKeywords())  
